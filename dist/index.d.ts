@@ -66,6 +66,59 @@ declare function runGuard(
   opts?: { maxBreakevenPct?: number; maxExitSlippagePct?: number }
 ): Promise<GuardResult>;
 
+interface TokenReportResponse {
+  token?: string;
+  chain?: string;
+  token_meta?: { symbol?: string; name?: string; decimals?: number };
+  security?: {
+    isHoneypot?: boolean;
+    sellable?: boolean;
+    transferTaxBps?: number | null;
+    taxMutable?: boolean;
+    ownerRenounced?: boolean;
+    upgradeableProxy?: boolean;
+    canMint?: boolean;
+    canPause?: boolean;
+    hasBlacklist?: boolean;
+    simStatus?: string;
+    [k: string]: unknown;
+  };
+  liquidity?: { wethPoolUsd?: number; dex?: string; [k: string]: unknown };
+  verdict?: "SAFE" | "CAUTION" | "AVOID" | string;
+  risk_score?: number;
+  reasons?: string[];
+  analyzed_at?: string;
+  disclaimer?: string;
+  [k: string]: unknown;
+}
+
+interface ReportDecision {
+  safe: boolean;
+  reasons: string[];
+}
+
+interface TokenReportResult extends TokenReportResponse {
+  safe: boolean;
+  guard_reasons: string[];
+  summary: string;
+}
+
+declare function buildReportUrl(args?: { token: string; base?: string }): string;
+declare function summarizeReport(out: TokenReportResponse | null | undefined): string;
+declare function evaluateReport(
+  out: TokenReportResponse | null | undefined,
+  opts?: { maxRiskScore?: number }
+): ReportDecision;
+declare function fetchTokenReport(
+  payFetch: (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<TokenReportResponse> }>,
+  args?: { token: string; base?: string }
+): Promise<TokenReportResponse>;
+declare function runTokenReport(
+  payFetch: (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<TokenReportResponse> }>,
+  args?: { token: string; base?: string },
+  opts?: { maxRiskScore?: number }
+): Promise<TokenReportResult>;
+
 interface SwapGuardOptions {
     /** Pre-built x402-paying fetch; overrides `privateKey`. Mainly for tests. */
     payFetch?: PayFetch;
@@ -147,5 +200,61 @@ declare const swapGuard: _langchain_core_tools.DynamicStructuredTool<z.ZodObject
     side?: "buy" | "sell" | undefined;
     notional_usd?: number | undefined;
 }, [string, GuardResult]>;
+interface TokenReportOptions {
+    /** Pre-built x402-paying fetch; overrides `privateKey`. Mainly for tests. */
+    payFetch?: PayFetch;
+    /** Hex private key of the agent's Base wallet; signs the $0.01 USDC x402 payment. Omit for the free preview path only. */
+    privateKey?: string;
+    /** Override the gate base URL (defaults to the hosted Grey Ridge Worker). */
+    base?: string;
+    /** Treat a token whose risk_score exceeds this (0-100) as unsafe. Default 60. */
+    maxRiskScore?: number;
+}
+/**
+ * Build a LangChain tool that vets a Base ERC-20 for safety — the research /
+ * watchlist-screening companion to `swapGuard`.
+ *
+ * Wraps Grey Ridge `/chain/token-report` (honeypot + sellability sim,
+ * owner-renounce + mint/pause/blacklist/fee-setter/upgradeable-proxy checks,
+ * measured transfer tax, and Uniswap v3 WETH-pool liquidity), paid inline per
+ * call via x402 USDC ($0.01) — no API key. Use it to screen a candidate token
+ * BEFORE deciding to trade it. Returns the full report plus a `safe` boolean,
+ * and fails CLOSED (`safe:false`, verdict AVOID) if the route is unreachable.
+ *
+ * Uses `responseFormat: "content_and_artifact"` so the agent gets a readable
+ * string AND the structured report object (`.artifact`) in one call.
+ *
+ * ```ts
+ * import { createTokenReport } from "@grey-ridge/langchain-swap-gate";
+ * const tokenReport = createTokenReport({ privateKey: process.env.PRIVATE_KEY });
+ * const agent = createReactAgent({ llm, tools: [tokenReport] });
+ * ```
+ */
+declare function createTokenReport(opts?: TokenReportOptions): _langchain_core_tools.DynamicStructuredTool<z.ZodObject<{
+    token: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    token: string;
+}, {
+    token: string;
+}>, {
+    token: string;
+}, {
+    token: string;
+}, [string, TokenReportResult]>;
+/**
+ * Zero-config token-report tool: reads `PRIVATE_KEY` and the optional
+ * `SWAP_GATE_BASE_URL` from the environment.
+ */
+declare const tokenReport: _langchain_core_tools.DynamicStructuredTool<z.ZodObject<{
+    token: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    token: string;
+}, {
+    token: string;
+}>, {
+    token: string;
+}, {
+    token: string;
+}, [string, TokenReportResult]>;
 
-export { GATE_BASE, type GateArgs, type GateResponse, type GuardResult, type SwapGuardOptions, type TradeDecision, buildGateUrl, createSwapGuard, swapGuard as default, evaluateTrade, extractToken, fetchGate, runGuard, summarizeGate, swapGuard };
+export { GATE_BASE, type GateArgs, type GateResponse, type GuardResult, type ReportDecision, type SwapGuardOptions, type TokenReportOptions, type TokenReportResponse, type TokenReportResult, type TradeDecision, buildGateUrl, buildReportUrl, createSwapGuard, createTokenReport, swapGuard as default, evaluateReport, evaluateTrade, extractToken, fetchGate, fetchTokenReport, runGuard, runTokenReport, summarizeGate, summarizeReport, swapGuard, tokenReport };
